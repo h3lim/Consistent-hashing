@@ -205,7 +205,7 @@
         text.setAttributeNS(null, "y", y + 30);
         text.setAttributeNS(null, "text-anchor", "middle");
         text.setAttributeNS(null, "fill", "black");
-        text.textContent = `Shard ${parseInt(id) + 1}`;  // Shard ID starts from 1
+        text.textContent = `Shard ${parseInt(id)}`;
         shardGroup.appendChild(text);
 
         svg.appendChild(shardGroup);
@@ -242,14 +242,14 @@
         tableBody.innerHTML = '';
         Object.entries(shardData).forEach(([shardId, userCount]) => {
             const row = document.createElement('tr');
-            row.innerHTML = `<td>${parseInt(shardId) + 1}</td><td>${userCount}</td>`; // Shard ID starts from 1
+            row.innerHTML = `<td>${parseInt(shardId)}</td><td>${userCount}</td>`;
             tableBody.appendChild(row);
         });
     }
 
     function updateLoadBalanceChart() {
         const ctx = document.getElementById('loadBalanceChart').getContext('2d');
-        const labels = Object.keys(shardData).map(id => parseInt(id) + 1);
+        const labels = Object.keys(shardData);
         const data = Object.values(shardData);
 
         if (loadBalanceChart) {
@@ -356,65 +356,58 @@
 
         requestAnimationFrame(animate);
     }
-
     function updateReallocationChart(shardData, migratingData, newAssignedData, removedShardId = null) {
         const ctx = document.getElementById('dataReallocationChart').getContext('2d');
+        const labels = Object.keys(shardData);
 
-        // Create labels starting from 1
-        const labels = Object.keys(shardData).map(id => parseInt(id) + 1);
-
-        // Adjust the data mappings
-        const remainingData = Object.keys(shardData).map(shardId => {
-            const id = parseInt(shardId); // Real shard index (0-based)
-            const totalData = shardData[id] || 0;
-            const newData = newAssignedData[id] || 0;
-
-            // Handle the case where the shard was removed
-            if (id == removedShardId) {
-                return 0; // Remaining data for the removed shard is 0
+        // Handle the removal of the shard by simulating migrating data
+        const remainingData = labels.map(shardId => {
+            const totalData = shardData[shardId] || 0;
+            const newData = newAssignedData[shardId] || 0;
+            // If the shard was removed, its remaining data becomes 0 as it's migrating
+            if (shardId === removedShardId) {
+                return 0; // Remaining data is set to 0 for the removed shard
             }
-            return Math.max(totalData - newData, 0); // Remaining data for non-removed shards
+            return Math.max(totalData - newData, 0); // Normal remaining data calculation for other shards
         });
 
-        const migratingValues = Object.keys(shardData).map(shardId => {
-            const id = parseInt(shardId); // Real shard index (0-based)
-            if (id == removedShardId) {
-                return shardData[id] || 0; // Entire data is migrating for the removed shard
+        const migratingValues = labels.map(shardId => {
+            // If the shard is removed, treat its entire data as migrating
+            if (shardId === removedShardId) {
+                return shardData[shardId] || 0; // All data in the removed shard is now migrating
             }
-            return Math.max(Math.abs(migratingData[id]), 0); // Normal migration calculation
+            // For other shards, increase migrating data if they are receiving data from the removed shard
+            return  Math.max(Math.abs(migratingData[shardId]), 0);
         });
 
-        const newAssignedValues = Object.keys(shardData).map(shardId => {
-            const id = parseInt(shardId); // Real shard index (0-based)
-            return newAssignedData[id] || 0; // New assigned data
-        });
+        const newAssignedValues = labels.map(shardId => newAssignedData[shardId] || 0); // New assigned data
 
         if (dataReallocationChart) {
             // Update the chart with the new values
             dataReallocationChart.data.labels = labels;
-            dataReallocationChart.data.datasets[0].data = remainingData;
-            dataReallocationChart.data.datasets[1].data = migratingValues;
-            dataReallocationChart.data.datasets[2].data = newAssignedValues;
+            dataReallocationChart.data.datasets[0].data = remainingData; // Remaining Data
+            dataReallocationChart.data.datasets[1].data = migratingValues; // Migrating Data
+            dataReallocationChart.data.datasets[2].data = newAssignedValues; // New-Assigned Data
             dataReallocationChart.update();
         } else {
             dataReallocationChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: labels, // Labels are now starting from 1
+                    labels: labels, // Shard IDs
                     datasets: [
                         {
                             label: 'Remaining Data',
-                            data: remainingData, // Mapped remaining data
+                            data: remainingData, // Remaining Data per shard
                             backgroundColor: '#36A2EB',
                         },
                         {
                             label: 'Migrating Data',
-                            data: migratingValues, // Mapped migrating data
+                            data: migratingValues, // Migrating Data per shard
                             backgroundColor: '#FF6384',
                         },
                         {
                             label: 'New-Assigned Data',
-                            data: newAssignedValues, // Mapped new assigned data
+                            data: newAssignedValues, // New-Assigned Data per shard
                             backgroundColor: '#FFCE56',
                         }
                     ]
@@ -423,9 +416,11 @@
                     responsive: true,
                     scales: {
                         x: {
+                            // No stacking, bars will be side by side (grouped)
                             stacked: false
                         },
                         y: {
+                            // Ensure the y-axis starts at zero
                             stacked: false,
                             beginAtZero: true
                         }
