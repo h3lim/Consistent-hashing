@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comprehensive Shard Distribution Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.1/css/bootstrap.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.0/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f8f9fa;
+        }
+
+        header {
+            background-color: white; /* Set background color to white */
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            position: relative;
+        }
+
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: start; /* Left-align the logo and title */
+        }
+
+        .logo {
+            width: 50px; /* Adjust the image size to make it smaller */
+            height: auto;
+            margin-right: 4px;
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 0;
+            color: #333;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            padding: 2rem;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            overflow: hidden;
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #495057;
+        }
+
+        .shard-details table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .shard-details th, .shard-details td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .shard-details th {
+            background-color: #f8f9fa;
+        }
+
+        .shard-details tr:hover {
+            background-color: #f1f3f5;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        footer {
+            background-color: white;
+            color: black;
+            text-align: center;
+            padding: 1rem;
+            margin-top: 2rem;
+        }
+
+        svg image {
+            width: 40px;
+            height: 40px;
+        }
+
+        .data-circle {
+            fill: #ff0000;
+            stroke: #ff0000;
+            stroke-width: 1px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-container">
+        <img src="/images/consistent-hashing.jpeg" alt="Consistent Hashing Logo" class="logo">
+        <h1>Consistent Hashing Dashboard</h1>
+    </div>
+</header>
+<div class="dashboard-container">
+    <div class="card">
+        <h2>Shard Visualization</h2>
+        <div id="visualization" class="chart-container"></div>
+    </div>
+    <div class="card shard-details">
+        <h2>Shard Details</h2>
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+            <tr>
+                <th>Shard ID</th>
+                <th>User Count</th>
+            </tr>
+            </thead>
+            <tbody id="shardDetails">
+            <!-- Rows will be dynamically populated -->
+            </tbody>
+        </table>
+    </div>
+    <div class="card">
+        <h2>Shard Load Balance</h2>
+        <div class="chart-container">
+            <canvas id="loadBalanceChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Data Reallocation per Shard</h2>
+        <div class="chart-container">
+            <canvas id="dataReallocationChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<footer>
+    <p>© 2024 Consistent Hashing Dashboard</p>
+</footer>
+
+<script>
+    const svgNS = "http://www.w3.org/2000/svg";
+    const colors = ['#36A2EB', '#4BC0C0', '#FFCE56', '#9966FF', '#FF9F40', '#36A2EB', '#4BC0C0', '#9966FF'];
+
+    let shardData = {};
+    let shardPositions = {};
+    let loadBalanceChart, dataReallocationChart;
+
+    const centerX = 500;  // Central position of the user
+    const centerY = 250;  // Central position of the user
+
+    function createSVG() {
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("height", "100%");
+        svg.setAttribute("viewBox", "0 0 1000 500");
+        document.getElementById("visualization").appendChild(svg);
+        return svg;
+    }
+
+    function createCentralUser(svg, x, y) {
+        const user = document.createElementNS(svgNS, "circle");
+        user.setAttributeNS(null, "cx", x);
+        user.setAttributeNS(null, "cy", y);
+        user.setAttributeNS(null, "r", "25");
+        user.setAttributeNS(null, "fill", "#333");
+        svg.appendChild(user);
+
+        const text = document.createElementNS(svgNS, "text");
+        text.setAttributeNS(null, "x", x);
+        text.setAttributeNS(null, "y", y);
+        text.setAttributeNS(null, "text-anchor", "middle");
+        text.setAttributeNS(null, "dominant-baseline", "central");
+        text.setAttributeNS(null, "fill", "white");
+        text.textContent = "User";
+        svg.appendChild(text);
+    }
+
+    function createShard(svg, x, y, id) {
+        const shardGroup = document.createElementNS(svgNS, "g");
+
+        const icon = document.createElementNS(svgNS, "image");
+        icon.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "/images/database-icon.png");
+        icon.setAttributeNS(null, "width", "40");
+        icon.setAttributeNS(null, "height", "40");
+        icon.setAttributeNS(null, "x", x - 20);
+        icon.setAttributeNS(null, "y", y - 20);
+        shardGroup.appendChild(icon);
+
+        const text = document.createElementNS(svgNS, "text");
+        text.setAttributeNS(null, "x", x);
+        text.setAttributeNS(null, "y", y + 30);
+        text.setAttributeNS(null, "text-anchor", "middle");
+        text.setAttributeNS(null, "fill", "black");
+        text.textContent = `Shard ${parseInt(id) + 1}`;  // Shard ID starts from 1
+        shardGroup.appendChild(text);
+
+        svg.appendChild(shardGroup);
+
+        shardPositions[id] = { x: x, y: y }; // Store shard positions
+    }
+
+    function updateVisualization(data) {
+        shardData = data;
+        const svg = document.querySelector("#visualization svg") || createSVG();
+        while (svg.firstChild) {
+            svg.removeChild(svg.firstChild);
+        }
+
+        const radius = 200;
+        const shardCount = Object.keys(data).length;
+
+        createCentralUser(svg, centerX, centerY);
+
+        Object.keys(data).forEach((shardId, index) => {
+            const angle = (index / shardCount) * 2 * Math.PI - Math.PI / 2;
+            const x = centerX + radius * Math.cos(angle);
+            const y = centerY + radius * Math.sin(angle);
+
+            createShard(svg, x, y, shardId);
+        });
+
+        updateShardDetailsTable();
+        updateLoadBalanceChart();
+    }
+
+    function updateShardDetailsTable() {
+        const tableBody = document.getElementById('shardDetails');
+        tableBody.innerHTML = '';
+        Object.entries(shardData).forEach(([shardId, userCount]) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${parseInt(shardId) + 1}</td><td>${userCount}</td>`; // Shard ID starts from 1
+            tableBody.appendChild(row);
+        });
+    }
+
+    function updateLoadBalanceChart() {
+        const ctx = document.getElementById('loadBalanceChart').getContext('2d');
+        const labels = Object.keys(shardData).map(id => parseInt(id) + 1);
+        const data = Object.values(shardData);
+
+        if (loadBalanceChart) {
+            loadBalanceChart.data.labels = labels;
+            loadBalanceChart.data.datasets[0].data = data;
+            loadBalanceChart.update();
+        } else {
+            loadBalanceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'User Count per Shard',
+                        data: data,
+                        backgroundColor: colors,
+                        borderColor: 'transparent',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Function to animate data movement between shards
+    function animateDataMovement(fromShardId, toShardId) {
+        const svg = document.querySelector("#visualization svg");
+        if (!svg || !shardPositions[fromShardId] || !shardPositions[toShardId]) return;
+
+        const fromPos = shardPositions[fromShardId];
+        const toPos = shardPositions[toShardId];
+
+        const dataCircle = document.createElementNS(svgNS, "circle");
+        dataCircle.setAttributeNS(null, "cx", fromPos.x);
+        dataCircle.setAttributeNS(null, "cy", fromPos.y);
+        dataCircle.setAttributeNS(null, "r", "10");
+        dataCircle.setAttributeNS(null, "fill", "red");
+        svg.appendChild(dataCircle);
+
+        const animationDuration = 1000; // 1 second
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsedTime = currentTime - startTime;
+            const progress = Math.min(elapsedTime / animationDuration, 1);
+
+            const currentX = fromPos.x + (toPos.x - fromPos.x) * progress;
+            const currentY = fromPos.y + (toPos.y - fromPos.y) * progress;
+
+            dataCircle.setAttribute("cx", currentX);
+            dataCircle.setAttribute("cy", currentY);
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                svg.removeChild(dataCircle);
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // Function to animate new user insertion from the central User to a shard
+    function animateUserInsertion(toShardId) {
+        const svg = document.querySelector("#visualization svg");
+        if (!svg || !shardPositions[toShardId]) return;
+
+        const toPos = shardPositions[toShardId];
+
+        const dataCircle = document.createElementNS(svgNS, "circle");
+        dataCircle.setAttributeNS(null, "cx", centerX);  // Start at the User position
+        dataCircle.setAttributeNS(null, "cy", centerY);  // Start at the User position
+        dataCircle.setAttributeNS(null, "r", "10");
+        dataCircle.setAttributeNS(null, "fill", "blue");
+        svg.appendChild(dataCircle);
+
+        const animationDuration = 1000; // 1 second
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsedTime = currentTime - startTime;
+            const progress = Math.min(elapsedTime / animationDuration, 1);
+
+            const currentX = centerX + (toPos.x - centerX) * progress;
+            const currentY = centerY + (toPos.y - centerY) * progress;
+
+            dataCircle.setAttribute("cx", currentX);
+            dataCircle.setAttribute("cy", currentY);
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                svg.removeChild(dataCircle);
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    function updateReallocationChart(shardData, migratingData, newAssignedData, removedShardId = null) {
+        const ctx = document.getElementById('dataReallocationChart').getContext('2d');
+
+        // Create labels starting from 1
+        const labels = Object.keys(shardData).map(id => parseInt(id) + 1);
+
+        // Adjust the data mappings
+        const remainingData = Object.keys(shardData).map(shardId => {
+            const id = parseInt(shardId); // Real shard index (0-based)
+            const totalData = shardData[id] || 0;
+            const newData = newAssignedData[id] || 0;
+
+            // Handle the case where the shard was removed
+            if (id == removedShardId) {
+                return 0; // Remaining data for the removed shard is 0
+            }
+            return Math.max(totalData - newData, 0); // Remaining data for non-removed shards
+        });
+
+        const migratingValues = Object.keys(shardData).map(shardId => {
+            const id = parseInt(shardId); // Real shard index (0-based)
+            if (id == removedShardId) {
+                return shardData[id] || 0; // Entire data is migrating for the removed shard
+            }
+            return Math.max(Math.abs(migratingData[id]), 0); // Normal migration calculation
+        });
+
+        const newAssignedValues = Object.keys(shardData).map(shardId => {
+            const id = parseInt(shardId); // Real shard index (0-based)
+            return newAssignedData[id] || 0; // New assigned data
+        });
+
+        if (dataReallocationChart) {
+            // Update the chart with the new values
+            dataReallocationChart.data.labels = labels;
+            dataReallocationChart.data.datasets[0].data = remainingData;
+            dataReallocationChart.data.datasets[1].data = migratingValues;
+            dataReallocationChart.data.datasets[2].data = newAssignedValues;
+            dataReallocationChart.update();
+        } else {
+            dataReallocationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels, // Labels are now starting from 1
+                    datasets: [
+                        {
+                            label: 'Remaining Data',
+                            data: remainingData, // Mapped remaining data
+                            backgroundColor: '#36A2EB',
+                        },
+                        {
+                            label: 'Migrating Data',
+                            data: migratingValues, // Mapped migrating data
+                            backgroundColor: '#FF6384',
+                        },
+                        {
+                            label: 'New-Assigned Data',
+                            data: newAssignedValues, // Mapped new assigned data
+                            backgroundColor: '#FFCE56',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            stacked: false
+                        },
+                        y: {
+                            stacked: false,
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+
+
+    const socket = new SockJS('/shard-updates');
+    const stompClient = Stomp.over(socket);
+
+    stompClient.connect({}, function(frame) {
+        stompClient.subscribe('/topic/shard-distribution', function(message) {
+            const data = JSON.parse(message.body);
+            updateVisualization(data);
+
+            Promise.all([
+                fetch('/api/dashboard/migrating-data').then(response => response.json()),
+                fetch('/api/dashboard/new-assigned-data').then(response => response.json())
+            ]).then(([migratingData, newAssignedData]) => {
+                updateReallocationChart(data, migratingData, newAssignedData);
+            });
+        });
+
+        // Subscribe to data migration updates to trigger animations
+        stompClient.subscribe('/topic/migration', function(message) {
+            const { fromShard, toShard } = JSON.parse(message.body);
+            animateDataMovement(fromShard, toShard);
+        });
+
+        // Subscribe to user creation updates to trigger insertion animation
+        stompClient.subscribe('/topic/user-creation', function(message) {
+            const { toShard } = JSON.parse(message.body);
+            animateUserInsertion(toShard);
+        });
+    });
+</script>
+</body>
+</html>
