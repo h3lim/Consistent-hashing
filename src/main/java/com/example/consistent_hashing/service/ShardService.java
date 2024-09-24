@@ -272,7 +272,7 @@ public class ShardService {
     public void executeGradualMigration() {
         if (isNewShardAdded) {
             logger.info("Scheduled migration task started.");
-            for (int shardId = 0; shardId < shardDataSourceProperties.getShards().size() - 1; shardId++) {
+            for (int shardId = 0; shardId < shardDataSourceProperties.getShards().size(); shardId++) {
                 gradualMigration(shardId);
             }
             isNewShardAdded = false;

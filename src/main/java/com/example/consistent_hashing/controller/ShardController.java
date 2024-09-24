@@ -19,14 +19,14 @@ public class ShardController {
 
     @PostMapping("/remove/{shardId}")
     public ResponseEntity<String> removeShard(@PathVariable int shardId) {
-        shardService.migrateUsersFromShard(shardId);
+        shardService.migrateUsersFromShard(shardId-1);
         shardService.getUserCountsInAllShards();
         return ResponseEntity.ok("Migration completed successfully");
     }
 
     @PostMapping("/add/{shardId}")
     public ResponseEntity<String> addShard(@PathVariable int shardId) {
-        shardService.addShard(shardId);
+        shardService.addShard(shardId-1);
         shardService.getUserCountsInAllShards();
         return ResponseEntity.ok("Shard added successfully");
     }

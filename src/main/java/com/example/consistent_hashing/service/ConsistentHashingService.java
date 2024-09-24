@@ -21,7 +21,7 @@ public class ConsistentHashingService {
 
     public ConsistentHashingService(ShardDataSourceProperties shardDataSourceProperties) {
         int numOfShards = shardDataSourceProperties.getShards().size();
-        int numOfVirtualNodes = 200;
+        int numOfVirtualNodes = 250;
         this.consistentHashing = new ConsistentHashing(numOfVirtualNodes, numOfShards);
 
         for (int i = 0; i < numOfShards; i++) {
